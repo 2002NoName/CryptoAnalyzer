@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "crypto-analyzer"
+version = "0.1.0"
+description = "Modularne narzędzie do analizy dysków i obrazów dysków pod kątem szyfrowania oraz metadanych."
+authors = ["CryptoAnalyzer Team <team@cryptoanalyzer.local>"]
+readme = "README.md"
+license = "MIT"
+packages = [{ include = "crypto_analyzer", from = "src" }]
+include = ["src/crypto_analyzer/data/encryption_signatures.json"]
+
+[tool.poetry.scripts]
+crypto-analyzer = "crypto_analyzer.cli:main"
+crypto-analyzer-gui = "crypto_analyzer.gui:main"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+PySide6 = ">=6.7,<7"
+pytsk3 = ">=20240101"
+libewf-python = "*"
+structlog = ">=24.1"
+pydantic = ">=2.5,<3"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.4"
+pytest-qt = ">=4.3"
+mypy = ">=1.6"
+ruff = ">=0.1.14"
+black = ">=23.11"
+types-pyside6 = "*"
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+extend-select = ["I", "N"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["crypto_analyzer"]
+strict = true
+
+[build-system]
+requires = ["poetry-core>=1.7.0"]
+build-backend = "poetry.core.masonry.api"

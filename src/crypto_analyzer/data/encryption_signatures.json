@@ -1,0 +1,69 @@
+[
+	{
+		"id": "bitlocker",
+		"name": "BitLocker",
+		"status": "encrypted",
+		"details": "Wykryto sygnaturę BitLocker (-FVE-FS-)",
+		"max_read": 4096,
+		"matchers": [
+			{
+				"type": "contains",
+				"pattern": "-FVE-FS-",
+				"encoding": "ascii"
+			}
+		],
+		"version": {
+			"type": "uint16-le",
+			"offset": 64
+		}
+	},
+	{
+		"id": "veracrypt",
+		"name": "VeraCrypt",
+		"status": "encrypted",
+		"details": "Wykryto nagłówek VeraCrypt (TRUE)",
+		"max_read": 512,
+		"matchers": [
+			{
+				"type": "equals",
+				"pattern": "TRUE",
+				"encoding": "ascii",
+				"offset": 0
+			}
+		]
+	},
+	{
+		"id": "luks",
+		"name": "LUKS",
+		"status": "encrypted",
+		"details": "Wykryto nagłówek LUKS",
+		"max_read": 592,
+		"matchers": [
+			{
+				"type": "equals",
+				"pattern": "4C554B53BABE",
+				"encoding": "hex",
+				"offset": 0
+			}
+		],
+		"version": {
+			"type": "uint16-le",
+			"offset": 6,
+			"length": 2
+		}
+	},
+	{
+		"id": "filevault2",
+		"name": "FileVault2",
+		"status": "encrypted",
+		"details": "Wykryto Core Storage (FileVault 2)",
+		"max_read": 4096,
+		"matchers": [
+			{
+				"type": "contains",
+				"pattern": "636F72657374726167",
+				"encoding": "hex"
+			}
+		]
+	}
+]
