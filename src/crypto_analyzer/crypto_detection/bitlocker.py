@@ -60,4 +60,31 @@ class BitLockerDetector(SignatureBasedDetector):
         super().__init__(driver, signature_ids=("bitlocker",))
 
 
-__all__ = ["BitLockerDetector", "SignatureBasedDetector"]
+class VeraCryptDetector(SignatureBasedDetector):
+    """Detektor korzystający z sygnatury VeraCrypt."""
+
+    def __init__(self, driver: DataSourceDriver) -> None:
+        super().__init__(driver, signature_ids=("veracrypt",))
+
+
+class LuksDetector(SignatureBasedDetector):
+    """Detektor korzystający z sygnatury LUKS."""
+
+    def __init__(self, driver: DataSourceDriver) -> None:
+        super().__init__(driver, signature_ids=("luks",))
+
+
+class FileVault2Detector(SignatureBasedDetector):
+    """Detektor korzystający z sygnatury FileVault 2 (APFS/ Core Storage)."""
+
+    def __init__(self, driver: DataSourceDriver) -> None:
+        super().__init__(driver, signature_ids=("filevault2",))
+
+
+__all__ = [
+    "BitLockerDetector",
+    "FileVault2Detector",
+    "LuksDetector",
+    "SignatureBasedDetector",
+    "VeraCryptDetector",
+]

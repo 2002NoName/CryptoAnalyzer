@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import Iterable, List, Optional, TYPE_CHECKING
+from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from crypto_analyzer.crypto_detection.detectors import EncryptionFinding
@@ -23,9 +23,17 @@ class FileSystemType(str, Enum):
     """Obsługiwane systemy plików."""
 
     NTFS = "ntfs"
+    EXT2 = "ext2"
+    EXT3 = "ext3"
     EXT4 = "ext4"
+    FAT12 = "fat12"
+    FAT16 = "fat16"
     FAT32 = "fat32"
+    EXFAT = "exfat"
     APFS = "apfs"
+    HFS_PLUS = "hfs_plus"
+    ISO9660 = "iso9660"
+    UFS = "ufs"
     UNKNOWN = "unknown"
 
 
@@ -46,6 +54,7 @@ class DiskSource:
     source_type: SourceType
     display_name: str
     path: Optional[Path] = None
+    size_bytes: Optional[int] = None
 
 
 @dataclass(slots=True)
@@ -57,6 +66,7 @@ class Volume:
     size: int
     filesystem: FileSystemType
     encryption: EncryptionStatus = EncryptionStatus.UNKNOWN
+    encryption_algorithm: str | None = None
 
 
 @dataclass(slots=True)
@@ -68,8 +78,10 @@ class FileMetadata:
     size: int
     owner: Optional[str]
     created_at: Optional[str]
+    changed_at: Optional[str]
     modified_at: Optional[str]
     accessed_at: Optional[str]
+    attributes: Tuple[str, ...] = field(default_factory=tuple)
     encryption: EncryptionStatus = EncryptionStatus.UNKNOWN
 
 
@@ -79,6 +91,12 @@ class DirectoryNode:
 
     name: str
     path: PurePosixPath
+    owner: Optional[str] = None
+    created_at: Optional[str] = None
+    changed_at: Optional[str] = None
+    modified_at: Optional[str] = None
+    accessed_at: Optional[str] = None
+    attributes: Tuple[str, ...] = field(default_factory=tuple)
     files: List[FileMetadata] = field(default_factory=list)
     subdirectories: List["DirectoryNode"] = field(default_factory=list)
 

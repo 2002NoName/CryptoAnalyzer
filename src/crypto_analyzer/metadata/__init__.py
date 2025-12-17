@@ -1,8 +1,8 @@
 """Skanowanie struktur katalogów i zbieranie metadanych."""
 
-from .scanner import MetadataResult, MetadataScanner
+from .scanner import MetadataResult, MetadataScanCancelled, MetadataScanner
 
-__all__ = ["MetadataScanner", "MetadataResult"]
+__all__ = ["MetadataScanner", "MetadataResult", "MetadataScanCancelled"]
 
 try:  # pragma: no cover - zależne od obecności pytsk3
 	from .tsk_scanner import TskMetadataScanner

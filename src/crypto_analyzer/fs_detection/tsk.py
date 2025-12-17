@@ -13,9 +13,19 @@ from .detector import FileSystemDetector
 
 _FS_TYPE_MAP: Tuple[Tuple[int, FileSystemType], ...] = (
     (pytsk3.TSK_FS_TYPE_NTFS, FileSystemType.NTFS),
+    (pytsk3.TSK_FS_TYPE_EXT2, FileSystemType.EXT2),
+    (pytsk3.TSK_FS_TYPE_EXT3, FileSystemType.EXT3),
     (pytsk3.TSK_FS_TYPE_EXT4, FileSystemType.EXT4),
+    (pytsk3.TSK_FS_TYPE_FAT12, FileSystemType.FAT12),
+    (pytsk3.TSK_FS_TYPE_FAT16, FileSystemType.FAT16),
     (pytsk3.TSK_FS_TYPE_FAT32, FileSystemType.FAT32),
+    (pytsk3.TSK_FS_TYPE_EXFAT, FileSystemType.EXFAT),
     (pytsk3.TSK_FS_TYPE_APFS, FileSystemType.APFS),
+    (pytsk3.TSK_FS_TYPE_HFS, FileSystemType.HFS_PLUS),
+    (pytsk3.TSK_FS_TYPE_ISO9660, FileSystemType.ISO9660),
+    (pytsk3.TSK_FS_TYPE_FFS1, FileSystemType.UFS),
+    (pytsk3.TSK_FS_TYPE_FFS1B, FileSystemType.UFS),
+    (pytsk3.TSK_FS_TYPE_FFS2, FileSystemType.UFS),
 )
 
 
@@ -35,6 +45,13 @@ class TskFileSystemDetector(FileSystemDetector):
             return FileSystemType.UNKNOWN
 
         fs_type_code = fs_handle.info.ftype
+        # Najpierw porównujemy dokładne wartości stałych TSK.
+        for mask, fs_type in _FS_TYPE_MAP:
+            if fs_type_code == mask:
+                return fs_type
+
+        # Jeżeli pytsk3 zwróci kombinację masek (np. *_DETECT), wykonujemy
+        # dopasowanie bitowe jako zapasowe rozwiązanie.
         for mask, fs_type in _FS_TYPE_MAP:
             if fs_type_code & mask:
                 return fs_type

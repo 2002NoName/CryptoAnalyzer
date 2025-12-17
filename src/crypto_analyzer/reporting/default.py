@@ -70,6 +70,12 @@ class DefaultReportExporter(ReportExporter):
         return {
             "name": node.name,
             "path": str(node.path),
+            "owner": node.owner,
+            "created_at": node.created_at,
+            "changed_at": node.changed_at,
+            "modified_at": node.modified_at,
+            "accessed_at": node.accessed_at,
+            "attributes": list(node.attributes),
             "files": [self._file_to_dict(file) for file in node.files],
             "subdirectories": [self._directory_to_dict(sub) for sub in node.subdirectories],
         }
@@ -91,8 +97,10 @@ class DefaultReportExporter(ReportExporter):
             "size": file.size,
             "owner": file.owner,
             "created_at": file.created_at,
+            "changed_at": file.changed_at,
             "modified_at": file.modified_at,
             "accessed_at": file.accessed_at,
+            "attributes": list(file.attributes),
             "encryption": file.encryption.value,
         }
 
@@ -109,8 +117,10 @@ class DefaultReportExporter(ReportExporter):
             "size",
             "owner",
             "created_at",
+            "changed_at",
             "modified_at",
             "accessed_at",
+            "attributes",
             "encryption_status",
             "encryption_algorithm",
             "encryption_version",
@@ -139,8 +149,10 @@ class DefaultReportExporter(ReportExporter):
                     "size": analysis.volume.size,
                     "owner": None,
                     "created_at": None,
+                    "changed_at": None,
                     "modified_at": None,
                     "accessed_at": None,
+                    "attributes": None,
                 }
                 continue
 
@@ -157,10 +169,12 @@ class DefaultReportExporter(ReportExporter):
             "path": str(node.path),
             "name": node.name,
             "size": None,
-            "owner": None,
-            "created_at": None,
-            "modified_at": None,
-            "accessed_at": None,
+            "owner": node.owner,
+            "created_at": node.created_at,
+            "changed_at": node.changed_at,
+            "modified_at": node.modified_at,
+            "accessed_at": node.accessed_at,
+            "attributes": ";".join(node.attributes) if node.attributes else None,
         }
 
         for file_metadata in node.files:
@@ -179,8 +193,10 @@ class DefaultReportExporter(ReportExporter):
             "size": file_metadata.size,
             "owner": file_metadata.owner,
             "created_at": file_metadata.created_at,
+            "changed_at": file_metadata.changed_at,
             "modified_at": file_metadata.modified_at,
             "accessed_at": file_metadata.accessed_at,
+            "attributes": ";".join(file_metadata.attributes) if file_metadata.attributes else None,
         }
 
 

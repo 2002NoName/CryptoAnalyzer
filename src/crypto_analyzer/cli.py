@@ -10,7 +10,7 @@ import structlog
 
 from crypto_analyzer.core import AnalysisManager
 from crypto_analyzer.crypto_detection import BitLockerDetector, SignatureBasedDetector
-from crypto_analyzer.drivers import TskImageDriver
+from crypto_analyzer.drivers import TskImageDriver, TskPhysicalDiskDriver
 from crypto_analyzer.fs_detection import TskFileSystemDetector
 from crypto_analyzer.metadata import TskMetadataScanner
 from crypto_analyzer.reporting import DefaultReportExporter, ExportFormat
@@ -23,9 +23,21 @@ def _build_parser() -> ArgumentParser:
         description="Narzędzie do analizy dysków i obrazów dysków pod kątem szyfrowania.",
     )
     parser.add_argument(
-        "image",
+        "source",
         type=Path,
-        help="Ścieżka do obrazu dysku (RAW, E01, VHD, itp.)",
+        nargs="?",
+        help="Ścieżka do obrazu dysku lub urządzenia fizycznego",
+    )
+    parser.add_argument(
+        "--source-type",
+        choices=["image", "physical"],
+        default="image",
+        help="Rodzaj źródła danych (domyślnie: image)",
+    )
+    parser.add_argument(
+        "--list-physical",
+        action="store_true",
+        help="Wyświetla dostępne dyski fizyczne i kończy działanie",
     )
     parser.add_argument(
         "--output",
@@ -59,13 +71,44 @@ def _build_parser() -> ArgumentParser:
 
 def _run_analysis(args: Namespace) -> int:
     logger = structlog.get_logger(__name__)
+    manager: AnalysisManager | None = None
+    driver: TskImageDriver | TskPhysicalDiskDriver | None = None
 
-    if not args.image.exists():
-        logger.error("image-not-found", path=str(args.image))
-        return 1
+    if args.source_type == "physical" and args.list_physical:
+        driver = TskPhysicalDiskDriver()
+        try:
+            sources = list(driver.enumerate_sources())
+            if not sources:
+                logger.warning("no-physical-disks-found")
+            else:
+                for src in sources:
+                    logger.info(
+                        "physical-disk",
+                        identifier=src.identifier,
+                        display_name=src.display_name,
+                        path=str(src.path) if src.path else None,
+                    )
+        finally:
+            driver.close()
+        return 0
+
+    if args.source_type == "image":
+        if args.source is None:
+            logger.error("image-not-provided")
+            return 1
+        image_path = args.source
+        if not image_path.exists():
+            logger.error("image-not-found", path=str(image_path))
+            return 1
+        driver = TskImageDriver(image_paths=[image_path])
+    else:
+        if args.source is None:
+            logger.error("physical-device-not-provided")
+            return 1
+        device_path = args.source
+        driver = TskPhysicalDiskDriver(device_paths=[device_path])
 
     try:
-        driver = TskImageDriver(image_paths=[args.image])
         fs_detector = TskFileSystemDetector(driver)
         crypto_detectors = [SignatureBasedDetector(driver)]
         metadata_scanner = TskMetadataScanner(driver, max_depth=args.max_depth)
@@ -79,7 +122,12 @@ def _run_analysis(args: Namespace) -> int:
             report_exporter=exporter,
         )
 
-        logger.info("starting-analysis", image=str(args.image))
+        source_label = str(args.source) if args.source else "auto"
+        logger.info(
+            "starting-analysis",
+            source=source_label,
+            source_type=args.source_type,
+        )
         sources = list(driver.enumerate_sources())
         if not sources:
             logger.error("no-sources-found")
@@ -111,7 +159,10 @@ def _run_analysis(args: Namespace) -> int:
         logger.exception("analysis-failed", error=str(exc))
         return 1
     finally:
-        manager.close()
+        if manager is not None:
+            manager.close()
+        elif driver is not None:
+            driver.close()
 
 
 def main() -> int:

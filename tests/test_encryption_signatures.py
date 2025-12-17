@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from crypto_analyzer.core.models import EncryptionStatus, FileSystemType, Volume
-from crypto_analyzer.crypto_detection import SignatureBasedDetector, load_default_signatures
+from crypto_analyzer.crypto_detection import (
+    BitLockerDetector,
+    FileVault2Detector,
+    LuksDetector,
+    SignatureBasedDetector,
+    VeraCryptDetector,
+    load_default_signatures,
+)
 
 
 class DummyDriver:
@@ -16,12 +23,15 @@ class DummyDriver:
         return self._data[offset : offset + size]
 
 
+def _make_volume(size: int) -> Volume:
+    return Volume(identifier="vol1", offset=0, size=size, filesystem=FileSystemType.UNKNOWN)
+
+
 def test_veracrypt_signature_detected() -> None:
     header = b"TRUE" + b"\x00" * 508
     driver = DummyDriver(header)
-    signatures = [sig for sig in load_default_signatures() if sig.identifier == "veracrypt"]
-    detector = SignatureBasedDetector(driver, signatures=signatures)
-    volume = Volume(identifier="vol1", offset=0, size=512, filesystem=FileSystemType.UNKNOWN)
+    detector = VeraCryptDetector(driver)
+    volume = _make_volume(512)
 
     finding = detector.analyze_volume(volume)
 
@@ -32,9 +42,8 @@ def test_veracrypt_signature_detected() -> None:
 def test_luks_signature_detected() -> None:
     header = bytes.fromhex("4C554B53BABE") + (2).to_bytes(2, "little") + b"\x00" * 584
     driver = DummyDriver(header)
-    signatures = [sig for sig in load_default_signatures() if sig.identifier == "luks"]
-    detector = SignatureBasedDetector(driver, signatures=signatures)
-    volume = Volume(identifier="vol1", offset=0, size=592, filesystem=FileSystemType.UNKNOWN)
+    detector = LuksDetector(driver)
+    volume = _make_volume(592)
 
     finding = detector.analyze_volume(volume)
 
@@ -46,9 +55,8 @@ def test_luks_signature_detected() -> None:
 def test_filevault2_signature_detected() -> None:
     header = b"\x00" * 256 + bytes.fromhex("636F72657374726167") + b"\x00" * 3832
     driver = DummyDriver(header)
-    signatures = [sig for sig in load_default_signatures() if sig.identifier == "filevault2"]
-    detector = SignatureBasedDetector(driver, signatures=signatures)
-    volume = Volume(identifier="vol1", offset=0, size=4096, filesystem=FileSystemType.UNKNOWN)
+    detector = FileVault2Detector(driver)
+    volume = _make_volume(4096)
 
     finding = detector.analyze_volume(volume)
 
@@ -61,7 +69,19 @@ def test_multiple_signatures_fallback_to_first_match() -> None:
     header = b"-FVE-FS-" + b"\x00" * 4088
     driver = DummyDriver(header)
     detector = SignatureBasedDetector(driver, signatures=load_default_signatures())
-    volume = Volume(identifier="vol1", offset=0, size=4096, filesystem=FileSystemType.UNKNOWN)
+    volume = _make_volume(4096)
+
+    finding = detector.analyze_volume(volume)
+
+    assert finding.status == EncryptionStatus.ENCRYPTED
+    assert finding.algorithm == "BitLocker"
+
+
+def test_bitlocker_detector_uses_signature_subset() -> None:
+    header = b"-FVE-FS-" + b"\x00" * 4088
+    driver = DummyDriver(header)
+    detector = BitLockerDetector(driver)
+    volume = _make_volume(4096)
 
     finding = detector.analyze_volume(volume)
 

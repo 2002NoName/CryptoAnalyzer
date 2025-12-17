@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -20,7 +21,7 @@ from crypto_analyzer.core.models import (
 from crypto_analyzer.crypto_detection import EncryptionDetector, EncryptionFinding
 from crypto_analyzer.fs_detection import FileSystemDetector
 from crypto_analyzer.drivers import DataSourceDriver
-from crypto_analyzer.metadata import MetadataResult, MetadataScanner
+from crypto_analyzer.metadata import MetadataResult, MetadataScanCancelled, MetadataScanner
 from crypto_analyzer.reporting import ExportFormat, ReportExporter
 from .session import AnalysisSession
 from .tasks import ProgressReporter
@@ -37,6 +38,19 @@ class DefaultProgressReporter:
             self.logger.info("progress", message=message, percentage=percentage)
         else:
             self.logger.info("progress", message=message)
+
+
+class UnknownFilesystemError(RuntimeError):
+    """Sygnał, że napotkano nieobsługiwany system plików."""
+
+    def __init__(self, volume: Volume) -> None:
+        self.volume = volume
+        message = f"Wolumen {volume.identifier} posiada nieobsługiwany system plików."
+        super().__init__(message)
+
+
+class AnalysisCancelledError(RuntimeError):
+    """Zgłaszane, gdy analiza zostanie anulowana przez użytkownika."""
 
 
 class AnalysisManager:
@@ -92,7 +106,13 @@ class AnalysisManager:
     # Analiza
     # ------------------------------------------------------------------
 
-    def analyze(self, volume_ids: Sequence[str], *, collect_metadata: bool = True) -> AnalysisResult:
+    def analyze(
+        self,
+        volume_ids: Sequence[str],
+        *,
+        collect_metadata: bool = True,
+        cancel_event: threading.Event | None = None,
+    ) -> AnalysisResult:
         """Analizuje wybrane wolumeny i zwraca wyniki."""
 
         session = self.session()
@@ -103,14 +123,57 @@ class AnalysisManager:
         analysis = AnalysisResult(source=session.source)
 
         for index, volume in enumerate(selected_volumes, start=1):
-            self._progress(f"Analiza wolumenu {volume.identifier}", percentage=self._progress_percentage(index, len(selected_volumes)))
+            self._check_cancel(cancel_event)
+            start, end = self._progress_bounds(index, len(selected_volumes))
+            self._progress(f"Wolumen {volume.identifier}: przygotowanie", percentage=start)
 
             filesystem = self._detect_filesystem(volume)
+
+            self._progress(f"Wolumen {volume.identifier}: analiza szyfrowania", percentage=start)
             finding = self._detect_encryption(volume)
             metadata: MetadataResult | None = None
 
-            if collect_metadata:
-                metadata = self._metadata_scanner.scan(volume)
+            skip_metadata = (
+                filesystem is FileSystemType.UNKNOWN
+                and finding.status in {EncryptionStatus.ENCRYPTED, EncryptionStatus.PARTIALLY_ENCRYPTED}
+            )
+
+            if filesystem is FileSystemType.UNKNOWN and not skip_metadata:
+                raise UnknownFilesystemError(volume)
+
+            if collect_metadata and not skip_metadata:
+                self._check_cancel(cancel_event)
+                self._progress(f"Wolumen {volume.identifier}: skanowanie metadanych", percentage=start)
+
+                def _metadata_progress(percent: int, kind: str | None, path: str | None) -> None:
+                    self._check_cancel(cancel_event)
+                    interpolated = self._interpolate_progress(start, end, percent)
+                    detail = self._format_metadata_detail(kind, path)
+                    message = f"Wolumen {volume.identifier}: skanowanie metadanych ({percent}%)"
+                    if detail:
+                        message = f"{message}\n{detail}"
+                    self._progress(message, percentage=interpolated)
+
+                try:
+                    metadata = self._metadata_scanner.scan(
+                        volume,
+                        progress=_metadata_progress,
+                        cancel_event=cancel_event,
+                    )
+                except MetadataScanCancelled as exc:
+                    raise AnalysisCancelledError("Analiza przerwana podczas skanowania metadanych") from exc
+                self._check_cancel(cancel_event)
+                self._progress(f"Wolumen {volume.identifier}: analiza zakończona", percentage=end)
+            else:
+                self._check_cancel(cancel_event)
+                if skip_metadata:
+                    algorithm = finding.algorithm or "szyfrowanie"
+                    self._progress(
+                        f"Wolumen {volume.identifier}: metadane pominięte (wykryto {algorithm})",
+                        percentage=end,
+                    )
+                else:
+                    self._progress(f"Wolumen {volume.identifier}: analiza zakończona", percentage=end)
 
             analysis.volumes.append(
                 VolumeAnalysis(
@@ -180,3 +243,35 @@ class AnalysisManager:
         if total == 0:
             return 50
         return int((current / total) * 80) + 15
+
+    @staticmethod
+    def _interpolate_progress(start: int, end: int, percent: int) -> int:
+        span = max(end - start, 1)
+        clamped = max(0, min(percent, 100))
+        return start + int((clamped / 100) * span)
+
+    @staticmethod
+    def _progress_bounds(index: int, total: int) -> tuple[int, int]:
+        if index <= 1:
+            start = 15
+        else:
+            start = AnalysisManager._progress_percentage(index - 1, total)
+        end = AnalysisManager._progress_percentage(index, total)
+        if end < start:
+            end = start
+        return start, end
+
+    @staticmethod
+    def _format_metadata_detail(kind: str | None, path: str | None) -> str | None:
+        if path is None:
+            return None
+        if kind == "directory":
+            return f"Katalog: {path}"
+        if kind == "file":
+            return f"Plik: {path}"
+        return path
+
+    @staticmethod
+    def _check_cancel(cancel_event: threading.Event | None) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise AnalysisCancelledError("Analiza została anulowana")

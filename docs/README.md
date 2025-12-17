@@ -2,6 +2,15 @@
 
 CryptoAnalyzer to narzędzie do analizy dysków i obrazów dysków pod kątem szyfrowania oraz struktury danych. Projekt rozwijamy w języku Python, z graficznym interfejsem użytkownika, kładąc nacisk na modularną architekturę i możliwość dalszej rozbudowy (m.in. integrację z API No More Ransom).
 
+## Aktualny status projektu (Q4 2025)
+
+-   Sterownik TSK obsługuje zarówno obrazy, jak i dyski fizyczne (Windows/Linux/macOS) wraz z enumeracją urządzeń.
+-   CLI pozwala wybierać źródła (`--source-type image|physical`) oraz listować dostępne dyski fizyczne.
+-   GUI oferuje wybór obrazu lub dysku, selekcję wolumenów, monitorowanie postępu oraz eksport raportów do JSON/CSV.
+-   Detektory szyfrowania korzystają z konfigurowalnych sygnatur (BitLocker, VeraCrypt, LUKS, FileVault itp.).
+-   Moduł raportowania generuje JSON/CSV zgodnie z ustalonym modelem danych.
+-   Zestaw testów (CLI, GUI, detekcja szyfrowania, TSK) przechodzi w pełni na Pythonie 3.12.
+
 ## Zakres systemów plików
 
 Pierwsza wersja aplikacji obsługuje następujące systemy plików:
