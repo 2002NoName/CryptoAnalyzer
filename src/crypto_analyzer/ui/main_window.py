@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QProgressDialog,
     QPushButton,
     QSpinBox,
@@ -43,10 +44,19 @@ from crypto_analyzer.core.models import (
     Volume,
 )
 from crypto_analyzer.reporting import DefaultReportExporter, ExportFormat
+from crypto_analyzer.shared.error_reporting import write_error_report
 from .elevation import is_running_as_admin, request_elevation
 from .localization import LocalizationManager
 from .services import AnalysisConfig, AnalysisService
 from .view_models import AnalysisState, AnalysisViewModel
+
+try:  # optional
+    from crypto_analyzer.ai import AiInsightsService, load_ai_config
+except Exception:  # pragma: no cover - optional feature
+    AiInsightsService = None  # type: ignore[assignment]
+    load_ai_config = None  # type: ignore[assignment]
+
+from .ai_dialog import AiAnalysisDialog
 
 
 def _format_size(size: int) -> str:
@@ -143,6 +153,9 @@ class MainWindow(QMainWindow):
         self._progress_dialog: QProgressDialog | None = None
         self._current_config: AnalysisConfig | None = None
         self._cancel_requested = False
+        self._ai_enabled = False
+        self._ai_service = None
+        self._ai_dialog: AiAnalysisDialog | None = None
 
         self.setWindowTitle(self._text("app.title"))
         self.setMinimumSize(800, 600)
@@ -241,6 +254,21 @@ class MainWindow(QMainWindow):
         self._results_tree.setColumnWidth(1, 120)
         layout.addWidget(self._results_tree, stretch=1)
 
+        # -----------------------------
+        # AI (optional)
+        # -----------------------------
+        self._ai_title = QLabel()
+        self._ai_title.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(self._ai_title)
+
+        self._ai_disabled_label = QLabel()
+        self._ai_disabled_label.setWordWrap(True)
+        layout.addWidget(self._ai_disabled_label)
+
+        self._ai_open_button = QPushButton()
+        self._ai_open_button.clicked.connect(self._open_ai_dialog)
+        layout.addWidget(self._ai_open_button)
+
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("margin-top: 10px; color: #666;")
@@ -250,6 +278,7 @@ class MainWindow(QMainWindow):
 
         self._connect_view_model()
         self._retranslate_ui()
+        self._configure_ai_from_env()
         self.status_label.setText(self._text("label.status.ready"))
 
     # ------------------------------------------------------------------
@@ -343,11 +372,15 @@ class MainWindow(QMainWindow):
         self._prepare_and_start_analysis(source, image_path.name)
 
     def _prepare_and_start_analysis(self, source: DiskSource, description: str) -> None:
+        self._current_source = source
+        self._current_description = description
+        self.status_label.setText(self._text("progress.preparing"))
+
         try:
             volumes = self._service.list_volumes(source)
         except Exception as exc:
-                self._handle_analysis_error(exc)
-                return
+            self._handle_analysis_error(exc)
+            return
 
         if not volumes:
             QMessageBox.information(
@@ -368,52 +401,13 @@ class MainWindow(QMainWindow):
             self.status_label.setText(self._text("dialog.analyze.no_selection"))
             return
 
-        collect_metadata = self._metadata_checkbox.isChecked()
-        bitlocker_recovery_keys: dict[str, str] = {}
-        bitlocker_passwords: dict[str, str] = {}
-        bitlocker_startup_key_paths: dict[str, str] = {}
-        filevault2_passwords: dict[str, str] = {}
-        filevault2_recovery_passwords: dict[str, str] = {}
+        collect_metadata = bool(self._metadata_checkbox.isChecked())
+        metadata_depth: int | None = None
+        metadata_workers = 1
         if collect_metadata:
-            selected_set = set(selected_ids)
-            for volume in volumes:
-                if volume.identifier not in selected_set:
-                    continue
-                if volume.encryption not in {EncryptionStatus.ENCRYPTED, EncryptionStatus.PARTIALLY_ENCRYPTED}:
-                    continue
-
-                algorithm = (getattr(volume, "encryption_algorithm", None) or "").strip().lower()
-                if algorithm == "filevault2":
-                    password = self._prompt_filevault2_password(volume)
-                    if password:
-                        filevault2_passwords[volume.identifier] = password
-                    continue
-
-                if algorithm != "bitlocker":
-                    continue
-
-                choice = self._prompt_bitlocker_unlock_method(volume)
-                if choice == "skip":
-                    continue
-                if choice == "recovery_key":
-                    recovery_key = self._prompt_bitlocker_recovery_key(volume)
-                    if recovery_key:
-                        bitlocker_recovery_keys[volume.identifier] = recovery_key
-                    continue
-                if choice == "password":
-                    password = self._prompt_bitlocker_password(volume)
-                    if password:
-                        bitlocker_passwords[volume.identifier] = password
-                    continue
-                if choice == "startup_key":
-                    path = self._prompt_bitlocker_startup_key_file(volume)
-                    if path:
-                        bitlocker_startup_key_paths[volume.identifier] = path
-                    continue
-
-        depth_value = self._depth_spin.value()
-        metadata_depth = None if depth_value == 0 else depth_value
-        metadata_workers = self._workers_spin.value() if collect_metadata else 1
+            depth_value = int(self._depth_spin.value())
+            metadata_depth = None if depth_value == 0 else depth_value
+            metadata_workers = int(self._workers_spin.value())
 
         config = AnalysisConfig(
             source=source,
@@ -421,94 +415,11 @@ class MainWindow(QMainWindow):
             collect_metadata=collect_metadata,
             metadata_depth=metadata_depth,
             metadata_workers=metadata_workers,
-            bitlocker_recovery_keys=bitlocker_recovery_keys,
-            bitlocker_passwords=bitlocker_passwords,
-            bitlocker_startup_key_paths=bitlocker_startup_key_paths,
-            filevault2_passwords=filevault2_passwords,
-            filevault2_recovery_passwords=filevault2_recovery_passwords,
         )
-
-        self._current_description = description
         self._current_config = config
+
+        self.status_label.setText(self._text("progress.running"))
         self._view_model.start_analysis(config)
-
-    def _prompt_bitlocker_recovery_key(self, volume: Volume) -> str | None:
-        title = self._text("dialog.bitlocker.unlock.title")
-        prompt = self._text("dialog.bitlocker.unlock.prompt").format(identifier=volume.identifier)
-        key, accepted = QInputDialog.getText(
-            self,
-            title,
-            prompt,
-            QLineEdit.EchoMode.Password,
-        )
-        if not accepted:
-            return None
-        value = (key or "").strip()
-        return value or None
-
-    def _prompt_bitlocker_password(self, volume: Volume) -> str | None:
-        title = self._text("dialog.bitlocker.password.title")
-        prompt = self._text("dialog.bitlocker.password.prompt").format(identifier=volume.identifier)
-        value, accepted = QInputDialog.getText(
-            self,
-            title,
-            prompt,
-            QLineEdit.EchoMode.Password,
-        )
-        if not accepted:
-            return None
-        password = (value or "").strip()
-        return password or None
-
-    def _prompt_filevault2_password(self, volume: Volume) -> str | None:
-        title = self._text("dialog.filevault2.password.title")
-        prompt = self._text("dialog.filevault2.password.prompt").format(identifier=volume.identifier)
-        value, accepted = QInputDialog.getText(
-            self,
-            title,
-            prompt,
-            QLineEdit.EchoMode.Password,
-        )
-        if not accepted:
-            return None
-        password = (value or "").strip()
-        return password or None
-
-    def _prompt_bitlocker_startup_key_file(self, volume: Volume) -> str | None:
-        title = self._text("dialog.bitlocker.startup_key.title")
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            title,
-            "",
-            "All files (*)",
-        )
-        if not path:
-            return None
-        return path
-
-    def _prompt_bitlocker_unlock_method(self, volume: Volume) -> str:
-        title = self._text("dialog.bitlocker.method.title")
-        prompt = self._text("dialog.bitlocker.method.prompt").format(identifier=volume.identifier)
-        options = [
-            self._text("dialog.bitlocker.method.recovery_key"),
-            self._text("dialog.bitlocker.method.password"),
-            self._text("dialog.bitlocker.method.startup_key"),
-            self._text("dialog.bitlocker.method.skip"),
-        ]
-        choice, accepted = QInputDialog.getItem(self, title, prompt, options, 0, False)
-        if not accepted:
-            return "skip"
-        if choice == options[0]:
-            return "recovery_key"
-        if choice == options[1]:
-            return "password"
-        if choice == options[2]:
-            return "startup_key"
-        return "skip"
-
-    # ------------------------------------------------------------------
-    # Obsługa modelu widoku
-    # ------------------------------------------------------------------
 
     def _connect_view_model(self) -> None:
         self._view_model.analysisStarted.connect(self._on_analysis_started)
@@ -521,60 +432,48 @@ class MainWindow(QMainWindow):
     def _on_analysis_started(self) -> None:
         self._set_ui_enabled(False)
         self._last_result = None
-        self._results_tree.clear()
-        self._set_export_buttons_enabled(False)
-        self.status_label.setText(self._text("progress.running"))
-        self._progress_dialog = QProgressDialog(
-            self._text("progress.preparing"),
-            self._text("dialog.progress.cancel"),
-            0,
-            100,
-            self,
-        )
-        self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        self._progress_dialog.setAutoClose(False)
-        self._progress_dialog.setAutoReset(False)
-        self._progress_dialog.setMinimumDuration(0)
-        self._progress_dialog.setValue(0)
-        self._progress_dialog.canceled.connect(self._cancel_analysis)
-        self._progress_dialog.show()
-        self._cancel_requested = False
+        if self._progress_dialog is None:
+            self._progress_dialog = QProgressDialog(
+                self._text("progress.running"),
+                self._text("dialog.progress.cancel"),
+                0,
+                100,
+                self,
+            )
+            self._progress_dialog.setWindowTitle(self._text("dialog.analyze.title"))
+            self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            self._progress_dialog.setAutoClose(False)
+            self._progress_dialog.setAutoReset(False)
+            self._progress_dialog.canceled.connect(self._cancel_analysis)
+            self._progress_dialog.show()
 
     def _on_analysis_progress(self, message: str, percentage: int) -> None:
+        self.status_label.setText(message)
         if self._progress_dialog is None:
             return
-        if percentage < 0:
-            self._progress_dialog.setRange(0, 0)
-        else:
-            if self._progress_dialog.minimum() != 0 or self._progress_dialog.maximum() != 100:
-                self._progress_dialog.setRange(0, 100)
-            self._progress_dialog.setValue(percentage)
-        self._progress_dialog.setLabelText(message)
-        QApplication.processEvents()
+        try:
+            self._progress_dialog.setLabelText(message)
+            if percentage >= 0:
+                self._progress_dialog.setValue(percentage)
+        except Exception:
+            # best-effort updates; progress dialog might be closing
+            pass
 
     def _on_analysis_succeeded(self, result: AnalysisResult) -> None:
         self._last_result = result
-        self._current_config = None
         self._set_export_buttons_enabled(True)
         self._populate_results_tree(result)
-        collect_metadata = self._metadata_checkbox.isChecked()
-        summary = self._format_result_summary(result, collect_metadata=collect_metadata)
-        QMessageBox.information(self, self._text("dialog.analyze.title"), summary)
-        if self._current_description is not None:
-            self.status_label.setText(
-                self._text("status.analysis.completed").format(description=self._current_description)
-            )
+        self._update_ai_button_state()
+        self.status_label.setText(self._text("status.analysis.completed"))
 
     def _on_analysis_failed(self, error: object) -> None:
         if isinstance(error, UnknownFilesystemError):
             self._handle_unknown_filesystem(error)
             return
-
-        message = str(error)
-        QMessageBox.critical(self, self._text("dialog.analyze.title"), f"{self._text('dialog.analyze.error')}\n{message}")
-        self.status_label.setText(self._text("status.analysis.failed"))
-        if self._is_permission_error(message):
-            self._show_elevation_dialog()
+        if isinstance(error, Exception):
+            self._handle_analysis_error(error)
+            return
+        self._handle_analysis_error(RuntimeError(str(error)))
 
     def _on_analysis_cancelled(self) -> None:
         if not self._cancel_requested:
@@ -585,14 +484,24 @@ class MainWindow(QMainWindow):
             )
         self.status_label.setText(self._text("status.analysis.cancelled"))
         self._current_config = None
+
     def _on_analysis_finished(self) -> None:
         self._set_ui_enabled(True)
-        if self._progress_dialog is not None:
-            self._progress_dialog.canceled.disconnect(self._cancel_analysis)
-            self._progress_dialog.close()
-            self._progress_dialog = None
+        self._dismiss_progress_dialog()
         self._cancel_requested = False
         self._current_config = None
+
+    def _dismiss_progress_dialog(self) -> None:
+        if self._progress_dialog is None:
+            return
+        try:
+            self._progress_dialog.canceled.disconnect(self._cancel_analysis)
+        except Exception:
+            pass
+        try:
+            self._progress_dialog.close()
+        finally:
+            self._progress_dialog = None
 
     def _cancel_analysis(self) -> None:
         if self._cancel_requested:
@@ -617,6 +526,48 @@ class MainWindow(QMainWindow):
             return
         self._localization.set_locale(locale)
         self._retranslate_ui()
+        self._configure_ai_from_env()
+
+    # ------------------------------------------------------------------
+    # AI integration (optional)
+    # ------------------------------------------------------------------
+
+    def _configure_ai_from_env(self) -> None:
+        self._ai_title.setText(self._text("ai.section.title"))
+        self._ai_open_button.setText(self._text("ai.button.open"))
+
+        self._ai_enabled = False
+        self._ai_service = None
+        if load_ai_config is not None and AiInsightsService is not None:
+            cfg = load_ai_config()
+            if cfg is not None:
+                self._ai_enabled = True
+                self._ai_service = AiInsightsService(cfg)
+
+        # Show/hide button depending on enablement.
+        self._ai_disabled_label.setVisible(not self._ai_enabled)
+        self._ai_disabled_label.setText(self._text("ai.section.disabled") if not self._ai_enabled else "")
+
+        self._ai_open_button.setVisible(self._ai_enabled)
+        self._update_ai_button_state()
+
+    def _update_ai_button_state(self) -> None:
+        enabled = bool(self._ai_enabled and self._ai_service is not None and self._last_result is not None)
+        self._ai_open_button.setEnabled(enabled)
+
+    def _open_ai_dialog(self) -> None:
+        if not self._ai_enabled or self._ai_service is None or self._last_result is None:
+            return
+
+        # Keep reference so the dialog isn't garbage-collected.
+        self._ai_dialog = AiAnalysisDialog(
+            service=self._ai_service,
+            result=self._last_result,
+            localization=self._localization,
+            ui_locale=self._localization.locale,
+            parent=self,
+        )
+        self._ai_dialog.show()
 
     def _retranslate_ui(self) -> None:
         self.setWindowTitle(self._text("app.title"))
@@ -693,10 +644,36 @@ class MainWindow(QMainWindow):
 
     def _handle_analysis_error(self, error: Exception) -> None:
         message = str(error)
+
+        # Pre-analysis errors can happen before the progress dialog exists, but if it does,
+        # close it so dialogs remain visible.
+        self._dismiss_progress_dialog()
+
+        report_path: str | None = None
+        report_error: str | None = None
+        try:
+            report = write_error_report(
+                error,
+                where="gui.handle_analysis_error",
+                context={
+                    "current_description": self._current_description,
+                    "metadata_enabled": bool(self._metadata_checkbox.isChecked()),
+                    "scan_depth": int(self._depth_spin.value()),
+                    "workers": int(self._workers_spin.value()),
+                },
+            )
+            report_path = str(report.path.resolve())
+        except Exception as report_exc:  # pragma: no cover - best effort
+            report_error = str(report_exc)
+
+        if report_path is not None:
+            report_line = self._text("dialog.analyze.error_report_saved").format(path=report_path)
+        else:
+            report_line = f"{self._text('dialog.analyze.error_report_saved').format(path='(failed to write)')}\n{report_error or ''}".strip()
         QMessageBox.critical(
             self,
             self._text("dialog.analyze.title"),
-            f"{self._text('dialog.analyze.error')}\n{message}",
+            f"{self._text('dialog.analyze.error')}\n{message}\n\n{report_line}",
         )
 
         if self._is_permission_error(message):
@@ -902,6 +879,15 @@ class MainWindow(QMainWindow):
                     algorithm=algo,
                 )
             )
+
+            if not collect_metadata:
+                continue
+
+            if volume_result.metadata is not None:
+                lines.append(self._text("summary.metadata.volume.collected"))
+                continue
+
+            lines.append(self._text("summary.metadata.volume.skipped"))
 
         lines.append(self._text("summary.totals.volumes").format(count=len(result.volumes)))
         lines.append(self._text("summary.totals.files").format(count=result.total_files()))

@@ -130,8 +130,6 @@ def test_run_analysis_wires_manager_and_closes() -> None:
         collect_metadata=True,
         metadata_depth=3,
         metadata_workers=4,
-        bitlocker_recovery_keys={"v1": "rk"},
-        filevault2_passwords={"v1": "pw"},
     )
 
     with (
@@ -156,12 +154,8 @@ def test_run_analysis_wires_manager_and_closes() -> None:
     assert getattr(scanner, "max_depth") == 3
     assert getattr(scanner, "max_workers") == 4
 
-    # driver wrappers: FileVault2UnlockingDriver(BitLockerUnlockingDriver(base_driver))
-    from crypto_analyzer.drivers import BitLockerUnlockingDriver, FileVault2UnlockingDriver
-
-    assert isinstance(captured["driver"], FileVault2UnlockingDriver)
-    assert isinstance(captured["driver"]._wrapped, BitLockerUnlockingDriver)
-    assert captured["driver"]._wrapped._wrapped is base_driver
+    # No unlocking/decryption wrappers are applied.
+    assert captured["driver"] is base_driver
 
 
 def test_run_analysis_closes_base_driver_if_manager_not_created() -> None:

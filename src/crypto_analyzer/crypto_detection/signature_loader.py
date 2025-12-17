@@ -77,6 +77,9 @@ class EncryptionSignature:
     matchers: Sequence[SignatureMatcher]
     details: str | None = None
     max_read: int = 4096
+    # Offset (in bytes) from the start of the volume where data should be read.
+    # Useful for formats with secondary headers outside the first block.
+    read_offset: int = 0
     version: VersionExtractor | None = None
 
     def matches(self, data: bytes) -> bool:
@@ -151,6 +154,7 @@ def _parse_signature(raw: dict) -> EncryptionSignature:
         matchers=_parse_matchers(raw["matchers"]),
         details=raw.get("details"),
         max_read=raw.get("max_read", 4096),
+        read_offset=int(raw.get("read_offset", 0) or 0),
         version=_parse_version(raw.get("version")),
     )
 

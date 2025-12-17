@@ -77,6 +77,21 @@ def test_multiple_signatures_fallback_to_first_match() -> None:
     assert finding.algorithm == "BitLocker"
 
 
+def test_signature_detected_at_nonzero_offset() -> None:
+    # Secondary LUKS header magic "SKUL\xBA\xBE" at 0x4000.
+    data = bytearray(b"\x00" * (0x4000 + 64))
+    data[0x4000 : 0x4000 + 6] = bytes.fromhex("534B554CBABE")
+
+    driver = DummyDriver(bytes(data))
+    detector = SignatureBasedDetector(driver, signatures=load_default_signatures())
+    volume = _make_volume(len(data))
+
+    finding = detector.analyze_volume(volume)
+
+    assert finding.status == EncryptionStatus.ENCRYPTED
+    assert finding.algorithm == "LUKS"
+
+
 def test_bitlocker_detector_uses_signature_subset() -> None:
     header = b"-FVE-FS-" + b"\x00" * 4088
     driver = DummyDriver(header)

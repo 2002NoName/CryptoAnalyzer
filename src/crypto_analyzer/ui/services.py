@@ -18,10 +18,8 @@ from crypto_analyzer.core.models import (
 )
 from crypto_analyzer.crypto_detection import SignatureBasedDetector
 from crypto_analyzer.drivers import (
-    BitLockerUnlockingDriver,
     DataSourceDriver,
     DriverError,
-    FileVault2UnlockingDriver,
     TskImageDriver,
     TskPhysicalDiskDriver,
 )
@@ -41,11 +39,6 @@ class AnalysisConfig:
     collect_metadata: bool
     metadata_depth: int | None
     metadata_workers: int = 1
-    bitlocker_recovery_keys: dict[str, str] = field(default_factory=dict)
-    bitlocker_passwords: dict[str, str] = field(default_factory=dict)
-    bitlocker_startup_key_paths: dict[str, str] = field(default_factory=dict)
-    filevault2_passwords: dict[str, str] = field(default_factory=dict)
-    filevault2_recovery_passwords: dict[str, str] = field(default_factory=dict)
 
 
 class _SignalProgressReporter:
@@ -144,18 +137,9 @@ class AnalysisService:
         try:
             self._open_source(base_driver, config.source)
 
-            driver: DataSourceDriver = BitLockerUnlockingDriver(
-                base_driver,
-                recovery_keys=config.bitlocker_recovery_keys,
-                passwords=config.bitlocker_passwords,
-                startup_key_paths=config.bitlocker_startup_key_paths,
-            )
-
-            driver = FileVault2UnlockingDriver(
-                driver,
-                passwords=config.filevault2_passwords,
-                recovery_passwords=config.filevault2_recovery_passwords,
-            )
+            # No volume unlocking/decryption is performed; we analyze encryption
+            # and collect metadata only when readable as-is.
+            driver: DataSourceDriver = base_driver
 
             manager = AnalysisManager(
                 driver=driver,

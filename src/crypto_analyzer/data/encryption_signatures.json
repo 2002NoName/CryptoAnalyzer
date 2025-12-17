@@ -53,6 +53,22 @@
 		}
 	},
 	{
+		"id": "luks_secondary",
+		"name": "LUKS",
+		"status": "encrypted",
+		"details": "Wykryto wtórny nagłówek LUKS (SKUL\\xBA\\xBE) na przesunięciu 0x4000",
+		"read_offset": 16384,
+		"max_read": 64,
+		"matchers": [
+			{
+				"type": "equals",
+				"pattern": "534B554CBABE",
+				"encoding": "hex",
+				"offset": 0
+			}
+		]
+	},
+	{
 		"id": "filevault2",
 		"name": "FileVault2",
 		"status": "encrypted",
