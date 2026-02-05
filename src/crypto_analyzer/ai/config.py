@@ -13,16 +13,25 @@ class AiConfig:
     api_key: str
     endpoint: str
     model: str
+    timeout_seconds: float = 120.0
+    max_retries: int = 3
+    retry_backoff_seconds: float = 1.0
 
 
 _SUPPORTED_ENV_KEYS = {
     "CRYPTOAI_API_KEY",
     "CRYPTOAI_ENDPOINT",
     "CRYPTOAI_MODEL",
+    "CRYPTOAI_TIMEOUT_SECONDS",
+    "CRYPTOAI_MAX_RETRIES",
+    "CRYPTOAI_RETRY_BACKOFF_SECONDS",
     "OPENAI_API_KEY",
     "OPENAI_ENDPOINT",
     "OPENAI_BASE_URL",
     "OPENAI_MODEL",
+    "OPENAI_TIMEOUT_SECONDS",
+    "OPENAI_MAX_RETRIES",
+    "OPENAI_RETRY_BACKOFF_SECONDS",
 }
 
 
@@ -98,12 +107,26 @@ def load_ai_config() -> AiConfig | None:
         or ""
     ).strip()
     model = (os.getenv("CRYPTOAI_MODEL") or os.getenv("OPENAI_MODEL") or "4o-mini").strip()
+    timeout_seconds = _read_float("CRYPTOAI_TIMEOUT_SECONDS", "OPENAI_TIMEOUT_SECONDS", default=120.0)
+    max_retries = _read_int("CRYPTOAI_MAX_RETRIES", "OPENAI_MAX_RETRIES", default=3)
+    retry_backoff_seconds = _read_float(
+        "CRYPTOAI_RETRY_BACKOFF_SECONDS",
+        "OPENAI_RETRY_BACKOFF_SECONDS",
+        default=1.0,
+    )
 
     if not api_key or not endpoint:
         return None
 
     model = _normalize_model_for_endpoint(endpoint, model)
-    return AiConfig(api_key=api_key, endpoint=endpoint, model=model)
+    return AiConfig(
+        api_key=api_key,
+        endpoint=endpoint,
+        model=model,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+        retry_backoff_seconds=retry_backoff_seconds,
+    )
 
 
 def _normalize_model_for_endpoint(endpoint: str, model: str) -> str:
@@ -128,3 +151,27 @@ def _normalize_model_for_endpoint(endpoint: str, model: str) -> str:
     if netloc.endswith("openai.com"):
         return "gpt-4o-mini"
     return normalized
+
+
+def _read_float(*keys: str, default: float) -> float:
+    for key in keys:
+        raw = (os.getenv(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            return float(raw)
+        except ValueError:
+            continue
+    return default
+
+
+def _read_int(*keys: str, default: int) -> int:
+    for key in keys:
+        raw = (os.getenv(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            return int(raw)
+        except ValueError:
+            continue
+    return default

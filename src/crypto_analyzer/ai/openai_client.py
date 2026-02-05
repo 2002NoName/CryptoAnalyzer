@@ -7,6 +7,8 @@ Works with OpenAI and most OpenAI-compatible endpoints.
 from __future__ import annotations
 
 import json
+import socket
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -22,7 +24,6 @@ class AiClientError(RuntimeError):
 @dataclass(slots=True)
 class OpenAIChatClient:
     config: AiConfig
-    timeout_seconds: float = 30.0
 
     def chat(self, *, system: str, user: str, temperature: float = 0.2) -> str:
         url = self._chat_completions_url(self.config.endpoint)
@@ -47,16 +48,38 @@ class OpenAIChatClient:
             },
         )
 
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                raw = response.read().decode("utf-8", "replace")
-        except HTTPError as exc:
-            raw = exc.read().decode("utf-8", "replace") if hasattr(exc, "read") else str(exc)
-            raise AiClientError(f"AI HTTP error: {exc.code} {exc.reason} - {raw}") from exc
-        except URLError as exc:
-            raise AiClientError(f"AI connection error: {exc}") from exc
-        except Exception as exc:
-            raise AiClientError(f"AI request failed: {exc}") from exc
+        last_error: Exception | None = None
+        max_retries = max(1, int(self.config.max_retries))
+        backoff = max(0.0, float(self.config.retry_backoff_seconds))
+
+        for attempt in range(max_retries):
+            try:
+                with urlopen(request, timeout=self.config.timeout_seconds) as response:
+                    raw = response.read().decode("utf-8", "replace")
+                last_error = None
+                break
+            except HTTPError as exc:
+                raw = exc.read().decode("utf-8", "replace") if hasattr(exc, "read") else str(exc)
+                if exc.code in {429, 500, 502, 503, 504} and attempt < max_retries - 1:
+                    last_error = AiClientError(f"AI HTTP error: {exc.code} {exc.reason} - {raw}")
+                    time.sleep(backoff)
+                    continue
+                raise AiClientError(f"AI HTTP error: {exc.code} {exc.reason} - {raw}") from exc
+            except (URLError, socket.timeout, TimeoutError) as exc:
+                last_error = AiClientError(f"AI request failed: {exc}")
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    continue
+                raise last_error from exc
+            except Exception as exc:
+                last_error = AiClientError(f"AI request failed: {exc}")
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    continue
+                raise last_error from exc
+
+        if last_error is not None:
+            raise last_error
 
         try:
             data: dict[str, Any] = json.loads(raw)

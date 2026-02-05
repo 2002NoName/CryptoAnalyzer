@@ -123,7 +123,7 @@ class AiAnalysisDialog(QDialog):
 
     def _on_insights_ready(self, payload: object) -> None:
         if not isinstance(payload, dict):
-            self._on_insights_failed(RuntimeError("Invalid AI output"))
+            self._on_insights_failed(RuntimeError(self._localization.text("ai.error.invalid_output")))
             return
         self._summary.setPlainText(str(payload.get("summary", "")))
         self._suspicious.setPlainText(str(payload.get("suspicious", "")))

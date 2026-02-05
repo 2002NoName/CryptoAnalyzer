@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
             self,
             self._text("dialog.select.image.title"),
             "",
-            "Obrazy dysków (*.img *.dd *.raw *.e01 *.vhd *.vhdx);;All files (*)",
+            f"{self._text('dialog.select.image.filter')};;{self._text('dialog.select.image.filter.all')}",
         )
         if not file_path:
             return
@@ -448,6 +448,7 @@ class MainWindow(QMainWindow):
             self._progress_dialog.show()
 
     def _on_analysis_progress(self, message: str, percentage: int) -> None:
+        message = self._translate_progress_message(message)
         self.status_label.setText(message)
         if self._progress_dialog is None:
             return
@@ -464,7 +465,13 @@ class MainWindow(QMainWindow):
         self._set_export_buttons_enabled(True)
         self._populate_results_tree(result)
         self._update_ai_button_state()
-        self.status_label.setText(self._text("status.analysis.completed"))
+        description = self._current_description
+        if description:
+            self.status_label.setText(
+                self._text("status.analysis.completed").format(description=description)
+            )
+        else:
+            self.status_label.setText(self._text("status.analysis.completed.generic"))
 
     def _on_analysis_failed(self, error: object) -> None:
         if isinstance(error, UnknownFilesystemError):
@@ -669,7 +676,9 @@ class MainWindow(QMainWindow):
         if report_path is not None:
             report_line = self._text("dialog.analyze.error_report_saved").format(path=report_path)
         else:
-            report_line = f"{self._text('dialog.analyze.error_report_saved').format(path='(failed to write)')}\n{report_error or ''}".strip()
+            report_line = self._text("dialog.analyze.error_report_failed")
+            if report_error:
+                report_line = f"{report_line}\n{report_error}"
         QMessageBox.critical(
             self,
             self._text("dialog.analyze.title"),
@@ -785,7 +794,7 @@ class MainWindow(QMainWindow):
         self._results_tree.clear()
         for analysis in result.volumes:
             finding = analysis.encryption
-            encryption_status = self._pretty_status(finding.status.value)
+            encryption_status = self._format_encryption_status(finding.status)
             details = finding.algorithm or "-"
             if finding.version:
                 details = f"{details} ({finding.version})" if details != "-" else finding.version
@@ -804,7 +813,7 @@ class MainWindow(QMainWindow):
             if analysis.metadata is None:
                 note_item = QTreeWidgetItem([
                     self._text("tree.metadata_skipped"),
-                    "info",
+                    self._text("tree.info"),
                     "-",
                     "-",
                     "",
@@ -819,7 +828,13 @@ class MainWindow(QMainWindow):
                 self._text("tree.directory"),
                 "-",
                 "-",
-                self._format_entry_details(str(root_node.path), root_node.owner, root_node.modified_at),
+                self._format_entry_details(
+                    str(root_node.path),
+                    root_node.owner,
+                    root_node.modified_at,
+                    owner_label=self._text("details.owner"),
+                    mtime_label=self._text("details.mtime"),
+                ),
             ])
             volume_item.addChild(root_item)
             self._add_directory_children(root_item, root_node)
@@ -835,7 +850,13 @@ class MainWindow(QMainWindow):
                 self._text("tree.directory"),
                 "-",
                 "-",
-                self._format_entry_details(str(subdir.path), subdir.owner, subdir.modified_at),
+                self._format_entry_details(
+                    str(subdir.path),
+                    subdir.owner,
+                    subdir.modified_at,
+                    owner_label=self._text("details.owner"),
+                    mtime_label=self._text("details.mtime"),
+                ),
             ])
             parent_item.addChild(dir_item)
             self._add_directory_children(dir_item, subdir)
@@ -845,23 +866,43 @@ class MainWindow(QMainWindow):
                 file_metadata.name,
                 self._text("tree.file"),
                 _format_size(file_metadata.size),
-                self._pretty_status(file_metadata.encryption.value),
-                self._format_entry_details(str(file_metadata.path), file_metadata.owner, file_metadata.modified_at),
+                self._format_encryption_status(file_metadata.encryption),
+                self._format_entry_details(
+                    str(file_metadata.path),
+                    file_metadata.owner,
+                    file_metadata.modified_at,
+                    owner_label=self._text("details.owner"),
+                    mtime_label=self._text("details.mtime"),
+                ),
             ])
             parent_item.addChild(file_item)
 
     @staticmethod
-    def _format_entry_details(path: str, owner: str | None, modified_at: str | None) -> str:
-        owner_label = owner if owner else "-"
-        parts = [path, f"owner: {owner_label}"]
+    def _format_entry_details(
+        path: str,
+        owner: str | None,
+        modified_at: str | None,
+        *,
+        owner_label: str = "owner",
+        mtime_label: str = "mtime",
+    ) -> str:
+        owner_value = owner if owner else "-"
+        parts = [path, f"{owner_label}: {owner_value}"]
         if modified_at:
-            parts.append(f"mtime: {modified_at}")
+            parts.append(f"{mtime_label}: {modified_at}")
         return " | ".join(parts)
 
     @staticmethod
     def _pretty_status(value: str) -> str:
         parts = value.replace("_", " ").split()
         return " ".join(part.capitalize() for part in parts) if parts else value
+
+    def _format_encryption_status(self, status: EncryptionStatus) -> str:
+        key = f"encryption.status.{status.value}"
+        try:
+            return self._text(key)
+        except KeyError:
+            return self._pretty_status(status.value)
 
     def _format_result_summary(self, result: AnalysisResult, *, collect_metadata: bool) -> str:
         lines = [
@@ -870,7 +911,7 @@ class MainWindow(QMainWindow):
         for volume_result in result.volumes:
             finding = volume_result.encryption
             algo = finding.algorithm or "-"
-            encrypt_status = self._pretty_status(finding.status.value)
+            encrypt_status = self._format_encryption_status(finding.status)
             lines.append(
                 self._text("summary.volume").format(
                     identifier=volume_result.volume.identifier,
@@ -896,3 +937,85 @@ class MainWindow(QMainWindow):
             self._text("summary.metadata.enabled" if collect_metadata else "summary.metadata.disabled")
         )
         return "\n".join(lines)
+
+    def _translate_progress_message(self, message: str) -> str:
+        if self._localization.locale == "pl":
+            return message
+
+        lines = message.splitlines()
+        main = lines[0] if lines else message
+        detail = "\n".join(lines[1:]) if len(lines) > 1 else None
+
+        if detail:
+            detail = self._translate_metadata_detail(detail)
+
+        translated = self._translate_progress_main(main)
+        if detail:
+            return f"{translated}\n{detail}"
+        return translated
+
+    def _translate_progress_main(self, text: str) -> str:
+        import re
+
+        if text == "Inicjalizacja sesji":
+            return self._text("progress.session.init")
+
+        match = re.match(r"^Wykryto (\d+) wolumen\(y\)$", text)
+        if match:
+            return self._text("progress.session.detected_volumes").format(count=int(match.group(1)))
+
+        match = re.match(r"^Wolumen (.+): przygotowanie$", text)
+        if match:
+            return self._text("progress.volume.preparing").format(identifier=match.group(1))
+
+        match = re.match(r"^Wolumen (.+): analiza szyfrowania$", text)
+        if match:
+            return self._text("progress.volume.encryption").format(identifier=match.group(1))
+
+        match = re.match(r"^Wolumen (.+): skanowanie metadanych \((\d+)%\)$", text)
+        if match:
+            return self._text("progress.volume.metadata_with_percent").format(
+                identifier=match.group(1),
+                percent=int(match.group(2)),
+            )
+
+        match = re.match(r"^Wolumen (.+): skanowanie metadanych$", text)
+        if match:
+            return self._text("progress.volume.metadata").format(identifier=match.group(1))
+
+        match = re.match(r"^Wolumen (.+): analiza zakończona$", text)
+        if match:
+            return self._text("progress.volume.completed").format(identifier=match.group(1))
+
+        match = re.match(r"^Wolumen (.+): metadane pominięte \((.+)\)$", text)
+        if match:
+            reason = self._translate_metadata_reason(match.group(2))
+            return self._text("progress.volume.metadata_skipped").format(
+                identifier=match.group(1),
+                reason=reason,
+            )
+
+        if text == "Analiza zakończona":
+            return self._text("progress.analysis.completed")
+
+        if text == "Raport został zapisany":
+            return self._text("progress.report.saved")
+
+        return text
+
+    def _translate_metadata_detail(self, detail: str) -> str:
+        if detail.startswith("Katalog: "):
+            path = detail.removeprefix("Katalog: ")
+            return self._text("progress.metadata.detail.directory").format(path=path)
+        if detail.startswith("Plik: "):
+            path = detail.removeprefix("Plik: ")
+            return self._text("progress.metadata.detail.file").format(path=path)
+        return detail
+
+    def _translate_metadata_reason(self, reason: str) -> str:
+        if reason == "nieznany system plików":
+            return self._text("progress.metadata.reason.unknown_fs")
+        if reason.startswith("wykryto "):
+            algorithm = reason.removeprefix("wykryto ")
+            return self._text("progress.metadata.reason.detected").format(algorithm=algorithm)
+        return reason

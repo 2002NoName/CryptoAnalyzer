@@ -211,15 +211,9 @@ def install_crash_reporting(*, enable_faulthandler: bool = True) -> None:
 
     if enable_faulthandler and faulthandler is not None:
         try:
-            global _FAULTHANDLER_FILE
-            if _FAULTHANDLER_FILE is None:
-                reports_dir = get_error_reports_dir()
-                created_at = datetime.now(timezone.utc)
-                stamp = created_at.strftime("%Y%m%d_%H%M%S")
-                name = f"fatal_{stamp}_{uuid4().hex[:8]}.log"
-                path = reports_dir / name
-                _FAULTHANDLER_FILE = open(path, "w", encoding="utf-8", errors="replace")
-
-            faulthandler.enable(file=_FAULTHANDLER_FILE, all_threads=True)
+            target = sys.stderr
+            if target is None or not hasattr(target, "fileno"):
+                return
+            faulthandler.enable(file=target, all_threads=True)
         except Exception:
             pass
