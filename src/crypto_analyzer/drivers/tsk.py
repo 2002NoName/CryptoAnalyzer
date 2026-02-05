@@ -86,6 +86,13 @@ class _BaseTskDriver:
             if partition.len <= 0:
                 continue
 
+            # Skip unallocated / metadata "partitions" returned by TSK.
+            # This keeps the UI/CLI and benchmarks focused on real allocated volumes.
+            alloc_flag = getattr(pytsk3, "TSK_VS_PART_FLAG_ALLOC", None)
+            part_flags = getattr(partition, "flags", None)
+            if alloc_flag is not None and isinstance(part_flags, int) and (part_flags & alloc_flag) == 0:
+                continue
+
             yield Volume(
                 identifier=f"{self._current_source.identifier}:{index}",
                 offset=partition.start * block_size,

@@ -21,7 +21,7 @@
 		"id": "veracrypt",
 		"name": "VeraCrypt",
 		"status": "encrypted",
-		"details": "Wykryto nagłówek VeraCrypt (TRUE)",
+		"details": "Wykryto nagłówek VeraCrypt",
 		"max_read": 512,
 		"matchers": [
 			{
@@ -29,56 +29,6 @@
 				"pattern": "TRUE",
 				"encoding": "ascii",
 				"offset": 0
-			}
-		]
-	},
-	{
-		"id": "luks",
-		"name": "LUKS",
-		"status": "encrypted",
-		"details": "Wykryto nagłówek LUKS",
-		"max_read": 592,
-		"matchers": [
-			{
-				"type": "equals",
-				"pattern": "4C554B53BABE",
-				"encoding": "hex",
-				"offset": 0
-			}
-		],
-		"version": {
-			"type": "uint16-le",
-			"offset": 6,
-			"length": 2
-		}
-	},
-	{
-		"id": "luks_secondary",
-		"name": "LUKS",
-		"status": "encrypted",
-		"details": "Wykryto wtórny nagłówek LUKS (SKUL\\xBA\\xBE) na przesunięciu 0x4000",
-		"read_offset": 16384,
-		"max_read": 64,
-		"matchers": [
-			{
-				"type": "equals",
-				"pattern": "534B554CBABE",
-				"encoding": "hex",
-				"offset": 0
-			}
-		]
-	},
-	{
-		"id": "filevault2",
-		"name": "FileVault2",
-		"status": "encrypted",
-		"details": "Wykryto Core Storage (FileVault 2)",
-		"max_read": 4096,
-		"matchers": [
-			{
-				"type": "contains",
-				"pattern": "636F72657374726167",
-				"encoding": "hex"
 			}
 		]
 	}

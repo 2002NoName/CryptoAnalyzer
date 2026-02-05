@@ -52,12 +52,6 @@ def build_ai_context(
     max_files_per_volume: int = 200,
     max_suspicious: int = 50,
 ) -> dict[str, Any]:
-    """Returns a compact, JSON-serializable context for AI.
-
-    The goal is to keep payload small enough for LLM use while preserving
-    useful forensic signals.
-    """
-
     volumes_out: list[dict[str, Any]] = []
 
     for analysis in result.volumes:

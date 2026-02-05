@@ -9,7 +9,7 @@ from pathlib import Path
 import structlog
 
 from crypto_analyzer.core import AnalysisManager
-from crypto_analyzer.crypto_detection import BitLockerDetector, SignatureBasedDetector
+from crypto_analyzer.crypto_detection import HeuristicEncryptionDetector, SignatureBasedDetector
 from crypto_analyzer.drivers import TskImageDriver, TskPhysicalDiskDriver
 from crypto_analyzer.fs_detection import TskFileSystemDetector
 from crypto_analyzer.metadata import TskMetadataScanner
@@ -62,6 +62,16 @@ def _build_parser() -> ArgumentParser:
         help="Pomija zbieranie metadanych plików i katalogów",
     )
     parser.add_argument(
+        "--signature-id",
+        action="append",
+        dest="signature_ids",
+        metavar="ID",
+        help=(
+            "Ogranicza detekcję do wskazanych sygnatur z konfiguracji (można podać wielokrotnie). "
+            'Przykład: --signature-id bitlocker --signature-id veracrypt; brak parametru = wszystkie.'
+        ),
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Wyświetla szczegółowe logi",
@@ -110,7 +120,12 @@ def _run_analysis(args: Namespace) -> int:
 
     try:
         fs_detector = TskFileSystemDetector(driver)
-        crypto_detectors = [SignatureBasedDetector(driver)]
+
+        signature_ids = tuple(args.signature_ids) if getattr(args, "signature_ids", None) else None
+        crypto_detectors = [
+            SignatureBasedDetector(driver, signature_ids=signature_ids),
+            HeuristicEncryptionDetector(driver),
+        ]
         metadata_scanner = TskMetadataScanner(driver, max_depth=args.max_depth)
         exporter = DefaultReportExporter()
 

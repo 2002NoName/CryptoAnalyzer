@@ -26,27 +26,11 @@ def _create_bitlocker_sample(path: Path) -> None:
         handle.write(b"\x00" * (4096 - 522))
 
 
-def _create_luks_sample(path: Path) -> None:
-    """Tworzy minimalny obraz z nagłówkiem LUKS."""
-    with path.open("wb") as handle:
-        handle.write(bytes.fromhex("4C554B53BABE"))
-        handle.write((2).to_bytes(2, "little"))
-        handle.write(b"\x00" * 1024)
-
-
 @pytest.fixture
 def bitlocker_image(tmp_path) -> Path:
     """Tworzy tymczasowy obraz z sygnaturą BitLocker."""
     image = tmp_path / "bitlocker.img"
     _create_bitlocker_sample(image)
-    return image
-
-
-@pytest.fixture
-def luks_image(tmp_path) -> Path:
-    """Tworzy tymczasowy obraz z sygnaturą LUKS."""
-    image = tmp_path / "luks.img"
-    _create_luks_sample(image)
     return image
 
 

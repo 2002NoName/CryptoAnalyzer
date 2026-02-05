@@ -1,5 +1,12 @@
 # Local error reports
 error_reports/
+
+# Engineering thesis / notes
+inżynierka/
+inzynierka/
+
+# Benchmark outputs
+benchmark_reports/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

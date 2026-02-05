@@ -30,6 +30,12 @@ def test_parser_custom_output() -> None:
     assert args.format == "csv"
 
 
+def test_parser_supports_signature_id_filter() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["test.img", "--signature-id", "bitlocker", "--signature-id", "veracrypt"])
+    assert args.signature_ids == ["bitlocker", "veracrypt"]
+
+
 def test_run_analysis_nonexistent_image(tmp_path) -> None:
     parser = _build_parser()
     args = parser.parse_args([str(tmp_path / "nonexistent.img")])

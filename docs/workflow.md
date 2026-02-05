@@ -8,7 +8,7 @@
     - wskazać plik obrazu (RAW/IMG/E01/VHD(VHDX)) poprzez dialog systemowy.
 3. **Identyfikacja wolumenów** – aplikacja inicjuje `AnalysisManager`, enumeruje źródło, a TSK wykrywa partycje oraz typy systemów plików.
 4. **Selektor wolumenów** – użytkownik zobaczy dialog z listą wolumenów (rozmiary, identyfikatory) i może wybrać jedną lub wiele pozycji.
-5. **Analiza szyfrowania** – `SignatureBasedDetector` uruchamia heurystyki (BitLocker, VeraCrypt, LUKS, FileVault, itp.) dla wybranych wolumenów.
+5. **Analiza szyfrowania** – uruchamiane są detektory w łańcuchu: detekcja sygnaturowa (`SignatureBasedDetector`) oraz heurystyka jako fallback (`HeuristicEncryptionDetector`).
 6. **Skan metadanych** – aktualna wersja GUI wykonuje szybkie skanowanie (głębokość 0) w celu zachowania responsywności; pełne drzewo katalogów jest przewidziane w roadmapie.
 7. **Podsumowanie** – użytkownik otrzymuje okno z opisem wyników (system plików, status szyfrowania, liczba wolumenów) oraz informację na pasku statusu.
 8. **Eksport raportu** – przyciski w głównym oknie generują raport w formacie JSON/CSV przy użyciu `DefaultReportExporter`.
@@ -16,13 +16,13 @@
 
 ## Scenariusze dodatkowe
 
--   **Analiza wybranych folderów** – po zakończeniu skanowania użytkownik może filtrować wyniki (np. po rozszerzeniu, dacie, statusie szyfrowania).
--   **Integracja z API No More Ransom (przyszłość)** – w widoku wyników pojawia się przycisk „Sprawdź możliwe narzędzia deszyfrujące”. System wysyła metadane do zewnętrznego API i prezentuje dostępne rozwiązania.
--   **Tryb tylko-metadane** – opcja uruchomienia analizy bez heurystyk szyfrowania (szybsza, do celów inwentaryzacji).
+- **Analiza wybranych folderów** – po zakończeniu skanowania użytkownik może filtrować wyniki (np. po rozszerzeniu, dacie, statusie szyfrowania).
+- **Integracja z API No More Ransom (przyszłość)** – w widoku wyników pojawia się przycisk „Sprawdź możliwe narzędzia deszyfrujące”. System wysyła metadane do zewnętrznego API i prezentuje dostępne rozwiązania.
+- **Tryb tylko-metadane** – opcja uruchomienia analizy bez heurystyk szyfrowania (szybsza, do celów inwentaryzacji).
 
 ## Wymagania UX/UI
 
--   Responsywne komponenty Qt zapewniające płynność na ekranach 13"+. Minimalna rozdzielczość 1280×720.
--   Pasek postępu i log strumieniowy podczas analiz, z możliwością rozwinięcia szczegółów (np. identyfikowane pliki, wykryte sygnatury).
--   Obsługa języków PL/EN (przyszłe rozszerzenie), z wydzielonym modułem i18n w `shared`.
--   Bezpieczne operowanie na źródłach: wszystkie operacje w trybie tylko-do-odczytu; ostrzeżenia przed wykonywaniem modyfikacji.
+- Responsywne komponenty Qt zapewniające płynność na ekranach 13"+. Minimalna rozdzielczość 1280×720.
+- Pasek postępu i log strumieniowy podczas analiz, z możliwością rozwinięcia szczegółów (np. identyfikowane pliki, wykryte sygnatury).
+- Obsługa języków PL/EN (przyszłe rozszerzenie), z wydzielonym modułem i18n w `shared`.
+- Bezpieczne operowanie na źródłach: wszystkie operacje w trybie tylko-do-odczytu; ostrzeżenia przed wykonywaniem modyfikacji.

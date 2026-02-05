@@ -6,6 +6,25 @@ Ten katalog zawiera przykładowe obrazy dysków używane w testach integracyjnyc
 
 ## Generowanie próbek testowych
 
+## Generator WSL2 (zalecane)
+
+W repo jest gotowy generator obrazów integracyjnych uruchamiany przez WSL2:
+
+- skrypt: `test_assets/wsl/generate_images.sh`
+- wrapper (Windows): `scripts/generate_test_images_wsl.ps1`
+
+Uruchomienie (Windows):
+
+```powershell
+powershell -File scripts/generate_test_images_wsl.ps1
+```
+
+Wyniki trafiają do:
+
+- `test_assets/generated/`
+
+## Ręczne przykłady (opcjonalnie)
+
 ### Prosty obraz RAW z FAT32
 
 ```bash

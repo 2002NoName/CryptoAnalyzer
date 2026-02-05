@@ -11,6 +11,7 @@ include = ["src/crypto_analyzer/data/encryption_signatures.json"]
 [tool.poetry.scripts]
 crypto-analyzer = "crypto_analyzer.cli:main"
 crypto-analyzer-gui = "crypto_analyzer.gui:main"
+crypto-analyzer-benchmark = "crypto_analyzer.benchmarks.cli:main"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"

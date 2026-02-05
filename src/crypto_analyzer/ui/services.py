@@ -16,7 +16,7 @@ from crypto_analyzer.core.models import (
     SourceType,
     Volume,
 )
-from crypto_analyzer.crypto_detection import SignatureBasedDetector
+from crypto_analyzer.crypto_detection import HeuristicEncryptionDetector, SignatureBasedDetector
 from crypto_analyzer.drivers import (
     DataSourceDriver,
     DriverError,
@@ -55,12 +55,7 @@ class AnalysisService:
     """Udostępnia operacje przygotowania i wykonania analizy dla GUI."""
 
     def __init__(self) -> None:
-        # Zapewnia, że logowanie jest skonfigurowane raz; GUI może nadpisać poziom w razie potrzeby.
         configure_logging()
-
-    # ------------------------------------------------------------------
-    # Źródła danych
-    # ------------------------------------------------------------------
 
     def list_physical_sources(self) -> List[DiskSource]:
         driver = TskPhysicalDiskDriver()
@@ -93,9 +88,9 @@ class AnalysisService:
                 return volumes
 
             try:
-                encryption_detector = SignatureBasedDetector(driver)
+                encryption_detectors = [SignatureBasedDetector(driver), HeuristicEncryptionDetector(driver)]
             except Exception:
-                encryption_detector = None
+                encryption_detectors = []
 
             for volume in volumes:
                 try:
@@ -104,24 +99,26 @@ class AnalysisService:
                     fs_type = FileSystemType.UNKNOWN
                 volume.filesystem = fs_type
 
-                if encryption_detector is None:
+                if not encryption_detectors:
                     continue
 
-                try:
-                    finding = encryption_detector.analyze_volume(volume)
-                except Exception:
-                    continue
+                for detector in encryption_detectors:
+                    try:
+                        finding = detector.analyze_volume(volume)
+                    except Exception:
+                        continue
 
-                if finding.status is not EncryptionStatus.UNKNOWN:
-                    volume.encryption = finding.status
-                    volume.encryption_algorithm = finding.algorithm
+                    if finding.status in {EncryptionStatus.ENCRYPTED, EncryptionStatus.PARTIALLY_ENCRYPTED}:
+                        volume.encryption = finding.status
+                        volume.encryption_algorithm = finding.algorithm
+                        break
+
+                    if volume.encryption is EncryptionStatus.UNKNOWN and finding.status is not EncryptionStatus.UNKNOWN:
+                        volume.encryption = finding.status
+                        volume.encryption_algorithm = finding.algorithm
             return volumes
         finally:
             driver.close()
-
-    # ------------------------------------------------------------------
-    # Analiza
-    # ------------------------------------------------------------------
 
     def run_analysis(
         self,
@@ -136,15 +133,12 @@ class AnalysisService:
 
         try:
             self._open_source(base_driver, config.source)
-
-            # No volume unlocking/decryption is performed; we analyze encryption
-            # and collect metadata only when readable as-is.
             driver: DataSourceDriver = base_driver
 
             manager = AnalysisManager(
                 driver=driver,
                 filesystem_detector=TskFileSystemDetector(driver),
-                encryption_detectors=[SignatureBasedDetector(driver)],
+                encryption_detectors=[SignatureBasedDetector(driver), HeuristicEncryptionDetector(driver)],
                 metadata_scanner=TskMetadataScanner(
                     driver,
                     max_depth=config.metadata_depth if config.collect_metadata else None,
@@ -169,10 +163,6 @@ class AnalysisService:
                 manager.close()
             else:
                 base_driver.close()
-
-    # ------------------------------------------------------------------
-    # Pomocnicze
-    # ------------------------------------------------------------------
 
     def _driver_for_source(self, source: DiskSource) -> DataSourceDriver:
         if source.source_type is SourceType.DISK_IMAGE:

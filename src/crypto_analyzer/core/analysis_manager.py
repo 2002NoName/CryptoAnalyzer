@@ -75,10 +75,6 @@ class AnalysisManager:
         self._logger = structlog.get_logger(__name__)
         self._session: AnalysisSession | None = None
 
-    # ------------------------------------------------------------------
-    # Zarządzanie sesją
-    # ------------------------------------------------------------------
-
     def start_session(self, source: DiskSource) -> AnalysisSession:
         """Inicjuje sesję analizy dla wskazanego źródła."""
 
@@ -101,10 +97,6 @@ class AnalysisManager:
 
         self._driver.close()
         self._session = None
-
-    # ------------------------------------------------------------------
-    # Analiza
-    # ------------------------------------------------------------------
 
     def analyze(
         self,
@@ -132,14 +124,10 @@ class AnalysisManager:
             self._progress(f"Wolumen {volume.identifier}: analiza szyfrowania", percentage=start)
             finding = self._detect_encryption(volume)
             metadata: MetadataResult | None = None
-
-            skip_metadata = (
-                filesystem is FileSystemType.UNKNOWN
-                and finding.status in {EncryptionStatus.ENCRYPTED, EncryptionStatus.PARTIALLY_ENCRYPTED}
-            )
-
-            if filesystem is FileSystemType.UNKNOWN and not skip_metadata:
-                raise UnknownFilesystemError(volume)
+            skip_metadata = filesystem is FileSystemType.UNKNOWN or finding.status in {
+                EncryptionStatus.ENCRYPTED,
+                EncryptionStatus.PARTIALLY_ENCRYPTED,
+            }
 
             if collect_metadata and not skip_metadata:
                 self._check_cancel(cancel_event)
@@ -162,16 +150,28 @@ class AnalysisManager:
                     )
                 except MetadataScanCancelled as exc:
                     raise AnalysisCancelledError("Analiza przerwana podczas skanowania metadanych") from exc
+                except Exception as exc:  # pragma: no cover - zależne od środowiska / uszkodzone obrazy
+                    self._logger.warning(
+                        "metadata-scan-failed",
+                        volume=volume.identifier,
+                        filesystem=filesystem.value,
+                        error=str(exc),
+                    )
+                    metadata = None
                 self._check_cancel(cancel_event)
                 self._progress(f"Wolumen {volume.identifier}: analiza zakończona", percentage=end)
             else:
                 self._check_cancel(cancel_event)
                 if skip_metadata:
-                    algorithm = finding.algorithm or "szyfrowanie"
-                    self._progress(
-                        f"Wolumen {volume.identifier}: metadane pominięte (wykryto {algorithm})",
-                        percentage=end,
-                    )
+                    if filesystem is FileSystemType.UNKNOWN and finding.status in {
+                        EncryptionStatus.NOT_DETECTED,
+                        EncryptionStatus.UNKNOWN,
+                    }:
+                        reason = "nieznany system plików"
+                    else:
+                        algorithm = finding.algorithm or "szyfrowanie"
+                        reason = f"wykryto {algorithm}"
+                    self._progress(f"Wolumen {volume.identifier}: metadane pominięte ({reason})", percentage=end)
                 else:
                     self._progress(f"Wolumen {volume.identifier}: analiza zakończona", percentage=end)
 
@@ -187,20 +187,12 @@ class AnalysisManager:
         self._progress("Analiza zakończona", percentage=95)
         return analysis
 
-    # ------------------------------------------------------------------
-    # Raportowanie
-    # ------------------------------------------------------------------
-
     def export_report(self, result: AnalysisResult, destination: Path, fmt: ExportFormat) -> Path:
         """Eksportuje raport do wskazanego pliku."""
 
         path = self._report_exporter.export(result, destination, fmt)
         self._progress("Raport został zapisany", percentage=100)
         return path
-
-    # ------------------------------------------------------------------
-    # Operacje pomocnicze
-    # ------------------------------------------------------------------
 
     def _detect_filesystem(self, volume: Volume) -> FileSystemType:
         try:
@@ -226,9 +218,13 @@ class AnalysisManager:
                 )
                 continue
 
-            if finding.status != EncryptionStatus.UNKNOWN:
+            if finding.status in {EncryptionStatus.ENCRYPTED, EncryptionStatus.PARTIALLY_ENCRYPTED}:
                 volume.encryption = finding.status
                 return finding
+
+            if finding.status is EncryptionStatus.UNKNOWN:
+                fallback = fallback or finding
+                continue
             fallback = fallback or finding
 
         result = fallback or EncryptionFinding(status=EncryptionStatus.UNKNOWN)

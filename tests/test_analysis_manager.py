@@ -7,7 +7,7 @@ from typing import Iterable, List
 
 import pytest
 
-from crypto_analyzer.core import AnalysisManager, UnknownFilesystemError
+from crypto_analyzer.core import AnalysisManager
 from crypto_analyzer.core.models import (
     AnalysisResult,
     DiskSource,
@@ -149,7 +149,7 @@ def test_analysis_manager_integrates_detection(tmp_path) -> None:
     assert driver.closed is True
 
 
-def test_analysis_manager_raises_on_unknown_filesystem(tmp_path) -> None:
+def test_analysis_manager_handles_unknown_filesystem_without_crash(tmp_path) -> None:
     driver = StubDriver(b"")
     fs_detector = StubFileSystemDetector(FileSystemType.UNKNOWN)
     encryption_detector = SignatureBasedDetector(driver, signature_ids=("bitlocker",))
@@ -167,10 +167,11 @@ def test_analysis_manager_raises_on_unknown_filesystem(tmp_path) -> None:
     source = driver.enumerate_sources()[0]
     session = manager.start_session(source)
 
-    with pytest.raises(UnknownFilesystemError) as exc_info:
-        manager.analyze([session.volumes[0].identifier], collect_metadata=False)
-
-    assert exc_info.value.volume.identifier == session.volumes[0].identifier
+    result = manager.analyze([session.volumes[0].identifier], collect_metadata=True)
+    assert len(result.volumes) == 1
+    analysis = result.volumes[0]
+    assert analysis.filesystem is FileSystemType.UNKNOWN
+    assert analysis.metadata is None
     manager.close()
 
 

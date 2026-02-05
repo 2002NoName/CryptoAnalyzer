@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from crypto_analyzer.core.models import EncryptionStatus, FileSystemType, Volume
 from crypto_analyzer.crypto_detection import (
-    BitLockerDetector,
-    FileVault2Detector,
-    LuksDetector,
     SignatureBasedDetector,
-    VeraCryptDetector,
-    load_default_signatures,
 )
 
 
@@ -30,7 +25,7 @@ def _make_volume(size: int) -> Volume:
 def test_veracrypt_signature_detected() -> None:
     header = b"TRUE" + b"\x00" * 508
     driver = DummyDriver(header)
-    detector = VeraCryptDetector(driver)
+    detector = SignatureBasedDetector(driver, signature_ids=("veracrypt",))
     volume = _make_volume(512)
 
     finding = detector.analyze_volume(volume)
@@ -39,63 +34,10 @@ def test_veracrypt_signature_detected() -> None:
     assert finding.algorithm == "VeraCrypt"
 
 
-def test_luks_signature_detected() -> None:
-    header = bytes.fromhex("4C554B53BABE") + (2).to_bytes(2, "little") + b"\x00" * 584
-    driver = DummyDriver(header)
-    detector = LuksDetector(driver)
-    volume = _make_volume(592)
-
-    finding = detector.analyze_volume(volume)
-
-    assert finding.status == EncryptionStatus.ENCRYPTED
-    assert finding.algorithm == "LUKS"
-    assert finding.version == "2"
-
-
-def test_filevault2_signature_detected() -> None:
-    header = b"\x00" * 256 + bytes.fromhex("636F72657374726167") + b"\x00" * 3832
-    driver = DummyDriver(header)
-    detector = FileVault2Detector(driver)
-    volume = _make_volume(4096)
-
-    finding = detector.analyze_volume(volume)
-
-    assert finding.status == EncryptionStatus.ENCRYPTED
-    assert finding.algorithm == "FileVault2"
-
-
-def test_multiple_signatures_fallback_to_first_match() -> None:
-    """Gdy wiele sygnatur pasuje, zwracamy pierwszą dopasowaną."""
-    header = b"-FVE-FS-" + b"\x00" * 4088
-    driver = DummyDriver(header)
-    detector = SignatureBasedDetector(driver, signatures=load_default_signatures())
-    volume = _make_volume(4096)
-
-    finding = detector.analyze_volume(volume)
-
-    assert finding.status == EncryptionStatus.ENCRYPTED
-    assert finding.algorithm == "BitLocker"
-
-
-def test_signature_detected_at_nonzero_offset() -> None:
-    # Secondary LUKS header magic "SKUL\xBA\xBE" at 0x4000.
-    data = bytearray(b"\x00" * (0x4000 + 64))
-    data[0x4000 : 0x4000 + 6] = bytes.fromhex("534B554CBABE")
-
-    driver = DummyDriver(bytes(data))
-    detector = SignatureBasedDetector(driver, signatures=load_default_signatures())
-    volume = _make_volume(len(data))
-
-    finding = detector.analyze_volume(volume)
-
-    assert finding.status == EncryptionStatus.ENCRYPTED
-    assert finding.algorithm == "LUKS"
-
-
 def test_bitlocker_detector_uses_signature_subset() -> None:
     header = b"-FVE-FS-" + b"\x00" * 4088
     driver = DummyDriver(header)
-    detector = BitLockerDetector(driver)
+    detector = SignatureBasedDetector(driver, signature_ids=("bitlocker",))
     volume = _make_volume(4096)
 
     finding = detector.analyze_volume(volume)
